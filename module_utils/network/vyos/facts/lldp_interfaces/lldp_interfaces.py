@@ -9,11 +9,12 @@ It is in this file the configuration is collected from the device
 for a given resource, parsed, and the facts tree is populated
 based on the configuration.
 """
-import re
+from re import findall, search, M
 from copy import deepcopy
 
 from ansible.module_utils.network.common import utils
-from ansible.module_utils.network.vyos.argspec.lldp_interfaces.lldp_interfaces import Lldp_interfacesArgs
+from ansible.module_utils.network.vyos.argspec.lldp_interfaces. \
+    lldp_interfaces import Lldp_interfacesArgs
 
 
 class Lldp_interfacesFacts(object):
@@ -46,40 +47,27 @@ class Lldp_interfacesFacts(object):
             pass
 
         if not data:
-            # typically data is populated from the current device configuration
-            # data = connection.get('show running-config | section ^interface')
-            # using mock data instead
-            data = ("resource rsrc_a\n"
-                    "  a_bool true\n"
-                    "  a_string choice_a\n"
-                    "  resource here\n"
-                    "resource rscrc_b\n"
-                    "  key is property01 value is value end\n"
-                    "  an_int 10\n")
-
-        # split the config into instances of the resource
-        resource_delim = 'resource'
-        find_pattern = r'(?:^|\n)%s.*?(?=(?:^|\n)%s|$)' % (resource_delim,
-                                                           resource_delim)
-        resources = [p.strip() for p in re.findall(find_pattern,
-                                                   data,
-                                                   re.DOTALL)]
+            data = connection.get_config()
 
         objs = []
-        for resource in resources:
-            if resource:
-                obj = self.render_config(self.generated_spec, resource)
+        lldp_names = findall(r'^set service lldp interface (\S+)', data, M)
+        if lldp_names:
+            for lldp in set(lldp_names):
+                lldp_regex = r' %s .+$' % lldp
+                cfg = findall(lldp_regex, data, M)
+                obj = self.render_config(cfg)
+                obj['name'] = lldp.strip("'")
                 if obj:
                     objs.append(obj)
         facts = {}
         if objs:
-            params = utils.validate_config(self.argument_spec, {'config': objs})
-            facts['lldp_interfaces'] = params['config']
+            facts['lldp_interfaces'] = objs
+            ansible_facts['ansible_network_resources'].update(facts)
 
         ansible_facts['ansible_network_resources'].update(facts)
         return ansible_facts
 
-    def render_config(self, spec, conf):
+    def render_config(self, conf):
         """
         Render config as dictionary structure and delete keys
           from spec for null values
@@ -89,27 +77,72 @@ class Lldp_interfacesFacts(object):
         :rtype: dictionary
         :returns: The generated config
         """
-        config = deepcopy(spec)
+        config = {}
+        location = {}
 
-        config['name'] = utils.parse_conf_arg(conf, 'resource')
-        config['some_string'] = utils.parse_conf_arg(conf, 'a_string')
+        civic_conf = '\n'.join(filter(lambda x: ('civic-based' in x), conf))
+        elin_conf = '\n'.join(filter(lambda x: ('elin' in x), conf))
+        coordinate_conf = '\n'.join(filter(lambda x: ('coordinate-based' in x), conf))
+        disable = '\n'.join(filter(lambda x: ('disable' in x), conf))
 
-        match = re.match(r'.*key is property01 (\S+)',
-                         conf, re.MULTILINE | re.DOTALL)
-        if match:
-            config['some_dict']['property_01'] = match.groups()[0]
-
-        a_bool = utils.parse_conf_arg(conf, 'a_bool')
-        if a_bool == 'true':
-            config['some_bool'] = True
-        elif a_bool == 'false':
-            config['some_bool'] = False
+        coordinate_based_conf = self.parse_attribs(
+            ['altitude', 'datum', 'longitude', 'latitude'], coordinate_conf
+         )
+        elin_based_conf = self.parse_lldp_elin_based(elin_conf)
+        civic_based_conf = self.parse_lldp_civic_based(civic_conf)
+        if disable:
+            config['enable'] = False
         else:
-            config['some_bool'] = None
-
-        try:
-            config['some_int'] = int(utils.parse_conf_arg(conf, 'an_int'))
-        except TypeError:
-            config['some_int'] = None
+            config['enable'] = True
+        if coordinate_conf:
+            location['coordinate_based'] = coordinate_based_conf
+            config['location'] = location
+        elif civic_based_conf:
+            location['civic_based'] = civic_based_conf
+            config['location'] = location
+        elif elin_conf:
+            location['elin'] = elin_based_conf
+            config['location'] = location
 
         return utils.remove_empties(config)
+
+    def parse_attribs(self, attribs, conf):
+        config = {}
+        for item in attribs:
+            value = utils.parse_conf_arg(conf, item)
+            if value:
+                value = value.strip("'")
+                if item == 'altitude':
+                    value = int(value)
+                config[item] = value
+            else:
+                config[item] = None
+        return utils.remove_empties(config)
+
+    def parse_lldp_civic_based(self, conf):
+        civic_based = None
+        if conf:
+            civic_info_list = []
+            civic_add_list = findall(r"^.*civic-based ca-type (.+)", conf, M)
+            if civic_add_list:
+                for civic_add in civic_add_list:
+                    ca = civic_add.split(' ')
+                    c_add = {}
+                    c_add['ca_type'] = int(ca[0].strip("'"))
+                    c_add['ca_value'] = ca[2].strip("'")
+                    civic_info_list.append(c_add)
+
+                country_code = search(r'^.*civic-based country-code (.+)', conf, M)
+                civic_based = {}
+                civic_based['ca_info'] = civic_info_list
+                civic_based['country_code'] = country_code.group(1).strip("'")
+        return civic_based
+
+    def parse_lldp_elin_based(self, conf):
+        elin_based = None
+        if conf:
+            e_num = search(r'^.* elin (.+)', conf, M)
+            elin_based = int(e_num.group(1).strip("'"))
+
+        return elin_based
+
