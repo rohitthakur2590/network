@@ -35,7 +35,7 @@ class Lldp_interfacesArgs(object):  # pylint: disable=R0903
         pass
 
     argument_spec = {'config': {'elements': 'dict',
-            'options': {'enable': {'type': 'bool'},
+            'options': {'enable': {'default': True, 'type': 'bool'},
                         'location': {'options': {'civic_based': {'options': {'ca_info': {'elements': 'dict',
                                                                                          'options': {'ca_type': {'type': 'int'},
                                                                                                      'ca_value': {'type': 'str'}},
@@ -54,7 +54,6 @@ class Lldp_interfacesArgs(object):  # pylint: disable=R0903
                                                                                                 'type': 'str'}},
                                                                       'type': 'dict'},
                                                  'elin': {'type': 'int'}},
-                                     'required': True,
                                      'type': 'dict'},
                         'name': {'required': True, 'type': 'str'}},
             'type': 'list'},

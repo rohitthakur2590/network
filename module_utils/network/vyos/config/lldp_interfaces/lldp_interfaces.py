@@ -15,7 +15,7 @@ from ansible.module_utils.network.vyos.facts.facts import Facts
 from ansible.module_utils.network.common.utils import to_list
 from ansible.module_utils.network. \
     vyos.utils.utils import search_obj_in_list, delete_location, \
-    add_location, update_location, add_disable
+    add_location, update_location, add_disable, delete_disable
 
 
 class Lldp_interfaces(ConfigBase):
@@ -32,9 +32,9 @@ class Lldp_interfaces(ConfigBase):
         'lldp_interfaces',
     ]
 
-    params = ['location', 'name']
+    params = ['enable', 'location', 'name']
     set_cmd = 'set service lldp interface '
-    del_cmd = 'delete lldp service interface '
+    del_cmd = 'delete service lldp interface '
 
     def __init__(self, module):
         super(Lldp_interfaces, self).__init__(module)
@@ -227,10 +227,13 @@ class Lldp_interfaces(ConfigBase):
                   of the provided objects
         """
         commands = []
-
         have_lldp = kwargs['have_lldp']
+        name = have_lldp['name']
         if have_lldp:
-            commands.extend(Lldp_interfaces._purge_attribs(lldp=have_lldp))
+            commands.append(Lldp_interfaces.del_cmd + name)
+            '''
+                commands.extend(Lldp_interfaces._purge_attribs(lldp=have_lldp))
+            '''
         return commands
 
     @staticmethod
@@ -244,16 +247,6 @@ class Lldp_interfaces(ConfigBase):
         have_item = have_element['lldp']
         want_item = want_element['lldp']
 
-        '''
-        want_enable = want_item.get('enable')
-        have_enable = have_item.get('enable') or
-
-        if want_enable['enable'] != have_enable['enable']:
-            if want_enable:
-                commands.append(Lldp_interfaces.del_cmd + lldp_name + ' disable ')
-            else:
-                commands.append(Lldp_interfaces.set_cmd + lldp_name + ' disable ')
-        '''
         # handles the disable part
         commands.extend(add_disable(lldp_name, want_item, have_item))
         # handles the location config
@@ -289,11 +282,9 @@ class Lldp_interfaces(ConfigBase):
     def _purge_attribs(**kwargs):
         commands = []
         lldp = kwargs['lldp']
+        lldp_name = lldp['name']
+        commands.append(Lldp_interfaces.del_cmd + ' ' + lldp_name)
 
-        for item in Lldp_interfaces.params:
-            if lldp.get(item):
-                if item == 'location':
-                    commands.extend(delete_location(lldp))
         return commands
 
     @staticmethod

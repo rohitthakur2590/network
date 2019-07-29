@@ -33,16 +33,21 @@ def coordinate_diff_have_only(have_key, have_value, want_dict):
 
 def add_disable(name, want_item, have_item):
     commands = []
-
-    want_enable = want_item.get('enable') or True
-    have_enable = have_item.get('enable')
-    if want_enable != have_enable:
-        if want_enable:
-            commands.append('delete service lldp interface ' + name + ' disable ')
+    if want_item['enable'] != have_item['enable']:
+        if want_item['enable']:
+            commands.append('delete service lldp interface ' + name + ' disable')
         else:
-            commands.append('set service lldp interface ' + name + ' disable ')
-
+            commands.append('set service lldp interface ' + name + ' disable')
     return commands
+
+
+def delete_disable(want_item):
+    commands = []
+    name = want_item['name']
+    if not want_item['enable']:
+        commands.append('delete service lldp interface ' + name + ' disable')
+    return commands
+
 
 def add_location(name, want_item, have_item):
     commands = []
@@ -79,7 +84,9 @@ def add_location(name, want_item, have_item):
         location_type = 'elin'
         if is_sub_dict_valid(have_location_type, 'elin'):
             if want_location_type.get('elin') != have_location_type.get('elin') :
-                commands.append(set_cmd + ' location ' + location_type + ' ' + str(want_location_type['elin']))
+                new_i = '%010d' % (int('0000000000') + want_location_type['elin'])
+                #commands.append(set_cmd + ' location ' + location_type + ' ' + str(want_location_type['elin']))
+                commands.append(set_cmd + ' location ' + location_type + ' ' + str(new_i))
         else:
             commands.append(set_cmd + ' location ' + location_type + ' ' + str(want_location_type['elin']))
     return commands
@@ -145,7 +152,7 @@ def add_civic_address(name, want, have):
         ca_type = item['ca_type']
         ca_value = item['ca_value']
         obj_in_have = search_dict_in_list(ca_type,ca_value,have)
-        if not obj_in_have :
+        if not obj_in_have:
             commands.append('set service lldp interface ' + name + ' location civic-based ca-type ' + str(ca_type) + ' ca-value ' + ca_value)
     return commands
 
@@ -155,8 +162,8 @@ def update_civic_address(name, want, have):
     for item in have:
         ca_type = item['ca_type']
         ca_value = item['ca_value']
-        only_in_have = search_dict_in_list(ca_type,ca_value,want)
-        if only_in_have:
+        in_want = search_dict_in_list(ca_type,ca_value,want)
+        if not in_want:
             commands.append('delete service lldp interface ' + name + ' location civic-based ca-type ' + str(ca_type))
     return commands
 
