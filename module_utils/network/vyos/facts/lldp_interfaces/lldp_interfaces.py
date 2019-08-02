@@ -92,8 +92,6 @@ class Lldp_interfacesFacts(object):
         civic_based_conf = self.parse_lldp_civic_based(civic_conf)
         if disable:
             config['enable'] = False
-        else:
-            config['enable'] = True
         if coordinate_conf:
             location['coordinate_based'] = coordinate_based_conf
             config['location'] = location

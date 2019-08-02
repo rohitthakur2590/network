@@ -12,10 +12,10 @@ created
 """
 from ansible.module_utils.network.common.cfg.base import ConfigBase
 from ansible.module_utils.network.vyos.facts.facts import Facts
-from ansible.module_utils.network.common.utils import to_list
-from ansible.module_utils.network. \
-    vyos.utils.utils import search_obj_in_list, delete_location, \
-    add_location, update_location, add_disable, delete_disable
+from ansible.module_utils.network.common.utils import to_list, dict_diff
+from ansible.module_utils.six import iteritems
+from ansible.module_utils.network. vyos.utils.utils import search_obj_in_list, \
+    search_dict_tv_in_list, key_value_in_dict, is_dict_element_present
 
 
 class Lldp_interfaces(ConfigBase):
@@ -108,30 +108,30 @@ class Lldp_interfaces(ConfigBase):
         commands = []
         state = self._module.params['state']
         if state == 'overridden':
-            commands.extend(self._state_overridden(want=want, have=have))
+            commands.extend(self._state_overridden(want, have))
         elif state == 'deleted':
             if want:
                 for item in want:
                     name = item['name']
                     obj_in_have = search_obj_in_list(name, have)
-                    commands.extend(self._state_deleted(have_lldp=obj_in_have))
+                    commands.extend(self._state_deleted(obj_in_have))
             else:
-                for item in have:
-                    commands.extend(self._state_deleted(have_lldp=item))
+                for have_item in have:
+                    commands.extend(self._state_deleted(have_item))
         elif state == 'merged':
-            for item in want:
-                name = item['name']
-                obj_in_have = search_obj_in_list(name, have)
-                commands.extend(self._state_merged(want_lldp=item, have_lldp=obj_in_have))
+            for want_item in want:
+                name = want_item['name']
+                have_item = search_obj_in_list(name, have)
+                commands.extend(self._state_merged(want_item, have_item))
         elif state == 'replaced':
-            for item in want:
-                name = item['name']
+            for want_item in want:
+                name = want_item['name']
                 obj_in_have = search_obj_in_list(name, have)
-                commands.extend(self._state_replaced(want_lldp=item, have_lldp=obj_in_have))
+                commands.extend(self._state_replaced(want_item, obj_in_have))
         return commands
 
     @staticmethod
-    def _state_replaced(**kwargs):
+    def _state_replaced(want, have):
         """ The command generator when state is replaced
 
         :rtype: A list
@@ -139,25 +139,13 @@ class Lldp_interfaces(ConfigBase):
                   to the desired configuration
         """
         commands = []
-        want_lldp = kwargs['want_lldp']
-        have_lldp = kwargs['have_lldp']
-        if have_lldp:
-            commands.extend(
-                Lldp_interfaces._render_del_commands(
-                    want_element={'lldp': want_lldp},
-                    have_element={'lldp': have_lldp}
-                )
-            )
-        commands.extend(
-            Lldp_interfaces._state_merged(
-                want_lldp=want_lldp,
-                have_lldp=have_lldp
-            )
-        )
+        if have:
+            commands.extend(Lldp_interfaces._render_del_commands(want, have))
+        commands.extend(Lldp_interfaces._state_merged(want,have))
         return commands
 
     @staticmethod
-    def _state_overridden(**kwargs):
+    def _state_overridden(want, have):
         """ The command generator when state is overridden
 
         :rtype: A list
@@ -165,61 +153,38 @@ class Lldp_interfaces(ConfigBase):
                   to the desired configuration
         """
         commands = []
-        want_lldps = kwargs['want']
-        have_lldps = kwargs['have']
-        for have_lldp in have_lldps:
-            lldp_name = have_lldp['name']
-            lldp_in_want = search_obj_in_list(lldp_name, want_lldps)
+        for have_item in have:
+            lldp_name = have_item['name']
+            lldp_in_want = search_obj_in_list(lldp_name, want)
             if not lldp_in_want:
-                commands.extend(
-                    Lldp_interfaces._purge_attribs(
-                        lldp=have_lldp
-                    )
-                )
+                commands.extend(Lldp_interfaces._purge_attribs(have_item))
 
-        for lldp in want_lldps:
-            name = lldp['name']
-            lldp_in_have = search_obj_in_list(name, have_lldps)
+        for want_item in want:
+            name = want_item['name']
+            lldp_in_have = search_obj_in_list(name, have)
             commands.extend(
-                Lldp_interfaces._state_replaced(
-                    want_lldp=lldp,
-                    have_lldp=lldp_in_have
+                Lldp_interfaces._state_replaced(want_item, lldp_in_have
                 )
             )
         return commands
 
     @staticmethod
-    def _state_merged(**kwargs):
+    def _state_merged(want, have):
         """ The command generator when state is merged
 
         :rtype: A list
         :returns: the commands necessary to merge the provided into
                   the current configuration
         """
-
         commands = []
-        want_lldp = kwargs['want_lldp']
-        have_lldp = kwargs['have_lldp']
-        if have_lldp:
-
-            commands.extend(
-                Lldp_interfaces._render_updates(
-                    want_element={'lldp': want_lldp},
-                    have_element={'lldp': have_lldp}
-                )
-            )
+        if have:
+            commands.extend(Lldp_interfaces._render_updates(want, have))
         else:
-            commands.extend(
-                Lldp_interfaces._render_set_commands(
-                    want_element={
-                        'lldp': want_lldp
-                    }
-                )
-            )
+            commands.extend(Lldp_interfaces._render_set_commands(want))
         return commands
 
     @staticmethod
-    def _state_deleted(**kwargs):
+    def _state_deleted(have):
         """ The command generator when state is deleted
 
         :rtype: A list
@@ -227,49 +192,34 @@ class Lldp_interfaces(ConfigBase):
                   of the provided objects
         """
         commands = []
-        have_lldp = kwargs['have_lldp']
-        name = have_lldp['name']
-        if have_lldp:
+        if have:
+            name = have['name']
             commands.append(Lldp_interfaces.del_cmd + name)
-            '''
-                commands.extend(Lldp_interfaces._purge_attribs(lldp=have_lldp))
-            '''
         return commands
 
     @staticmethod
-    def _render_updates(**kwargs):
+    def _render_updates(want, have):
         commands = []
-        want_element = kwargs['want_element']
-        have_element = kwargs['have_element']
-
-        lldp_name = have_element['lldp']['name']
-
-        have_item = have_element['lldp']
-        want_item = want_element['lldp']
-
-        # handles the disable part
-        commands.extend(add_disable(lldp_name, want_item, have_item))
-        # handles the location config
-        commands.extend(add_location(lldp_name, want_item, have_item))
+        lldp_name = have['name']
+        commands.extend(Lldp_interfaces.configure_status(lldp_name, want, have))
+        commands.extend(Lldp_interfaces.add_location(lldp_name, want, have))
 
         return commands
 
     @staticmethod
-    def _render_set_commands(**kwargs):
+    def _render_set_commands(want):
         commands = []
-        have_item = {}
-        want_element = kwargs['want_element']
-        lldp_name = want_element['lldp']['name']
+        have = {}
+        lldp_name = want['name']
 
         params = Lldp_interfaces.params
-        want_item = want_element['lldp']
 
-        commands.extend(add_location(lldp_name, want_item, have_item))
+        commands.extend(Lldp_interfaces.add_location(lldp_name, want, have))
         for attrib in params:
-            value = want_item[attrib]
+            value = want[attrib]
             if value:
                 if attrib == 'location':
-                    commands.extend(add_location(lldp_name, want_item, have_item))
+                    commands.extend(Lldp_interfaces.add_location(lldp_name, want, have))
                 elif attrib == 'enable':
                     if not value:
                         commands.append(Lldp_interfaces.set_cmd + lldp_name + ' disable ')
@@ -279,27 +229,156 @@ class Lldp_interfaces(ConfigBase):
         return commands
 
     @staticmethod
-    def _purge_attribs(**kwargs):
+    def _purge_attribs(have):
         commands = []
-        lldp = kwargs['lldp']
-        lldp_name = lldp['name']
-        commands.append(Lldp_interfaces.del_cmd + ' ' + lldp_name)
-
+        name = have['name']
+        commands.append(Lldp_interfaces.del_cmd + ' ' + name)
         return commands
 
     @staticmethod
-    def _render_del_commands(**kwargs):
+    def _render_del_commands(want, have):
         commands = []
-        want_element = kwargs['want_element']
-        have_element = kwargs['have_element']
 
-        lldp_name = have_element['lldp']['name']
+        lldp_name = have['name']
         params = Lldp_interfaces.params
-
-        have_item = have_element['lldp']
-        want_item = want_element['lldp']
 
         for attrib in params:
             if attrib == 'location':
-                commands.extend(update_location(lldp_name, want_item, have_item))
+                commands.extend(Lldp_interfaces.update_location(lldp_name, want, have))
+        return commands
+
+    @staticmethod
+    def configure_status(name, want_item, have_item):
+        commands = []
+        if is_dict_element_present(have_item, 'enable'):
+            temp_have_item = False
+        else:
+            temp_have_item = True
+        if want_item['enable'] != temp_have_item:
+            if want_item['enable']:
+                commands.append(Lldp_interfaces.del_cmd + name + ' disable')
+            else:
+                commands.append(Lldp_interfaces.set_cmd + name + ' disable')
+        return commands
+
+    @staticmethod
+    def delete_disable(want_item):
+        commands = []
+        name = want_item['name']
+        if not want_item['enable']:
+            commands.append('delete service lldp interface ' + name + ' disable')
+        return commands
+
+    @staticmethod
+    def add_location(name, want_item, have_item):
+        commands = []
+        have_dict = {}
+        have_ca = {}
+        set_cmd = Lldp_interfaces.set_cmd + name
+        want_location_type = want_item.get('location') or {}
+        have_location_type = have_item.get('location') or {}
+
+        if want_location_type['coordinate_based']:
+            want_dict = want_location_type.get('coordinate_based') or {}
+            if is_dict_element_present(have_location_type, 'coordinate_based'):
+                have_dict = have_location_type.get('coordinate_based') or {}
+            location_type = 'coordinate-based'
+            updates = dict_diff(have_dict, want_dict)
+            for key, value in iteritems(updates):
+                if value:
+                    commands.append(set_cmd + ' location ' + location_type + ' ' + key + ' ' + str(value))
+
+        elif want_location_type['civic_based']:
+            location_type = 'civic-based'
+            want_dict = want_location_type.get('civic_based') or {}
+            want_ca = want_dict.get('ca_info') or []
+            if is_dict_element_present(have_location_type, 'civic_based'):
+                have_dict = have_location_type.get('civic_based') or {}
+                have_ca = have_dict.get('ca_info') or []
+                if want_dict['country_code'] != have_dict['country_code']:
+                    commands.append(
+                        set_cmd + ' location ' + location_type + ' country-code ' + str(want_dict['country_code']))
+            else:
+                commands.append(
+                    set_cmd + ' location ' + location_type + ' country-code ' + str(want_dict['country_code']))
+            commands.extend(Lldp_interfaces.add_civic_address(name, want_ca, have_ca))
+
+        elif want_location_type['elin']:
+            location_type = 'elin'
+            if is_dict_element_present(have_location_type, 'elin'):
+                if want_location_type.get('elin') != have_location_type.get('elin'):
+                    commands.append(set_cmd + ' location ' + location_type + ' ' + str(want_location_type['elin']))
+            else:
+                commands.append(set_cmd + ' location ' + location_type + ' ' + str(want_location_type['elin']))
+        return commands
+
+    @staticmethod
+    def update_location(name, want_item, have_item):
+        commands = []
+        del_cmd = 'delete service lldp interface ' + name
+        want_location_type = want_item.get('location') or {}
+        have_location_type = have_item.get('location') or {}
+
+        if want_location_type['coordinate_based']:
+            want_dict = want_location_type.get('coordinate_based') or {}
+            if is_dict_element_present(have_location_type, 'coordinate_based'):
+                have_dict = have_location_type.get('coordinate_based') or {}
+                location_type = 'coordinate-based'
+                for key, value in iteritems(have_dict):
+                    only_in_have = key_value_in_dict(key, value, want_dict)
+                    if not only_in_have:
+                        commands.append(del_cmd + ' location ' + location_type + ' ' + key + ' ' + str(value))
+            else:
+                commands.append(del_cmd + ' location')
+
+        elif want_location_type['civic_based']:
+            want_dict = want_location_type.get('civic_based') or {}
+            want_ca = want_dict.get('ca_info') or []
+            if is_dict_element_present(have_location_type, 'civic_based'):
+                have_dict = have_location_type.get('civic_based') or {}
+                have_ca = have_dict.get('ca_info')
+                commands.extend(Lldp_interfaces.update_civic_address(name, want_ca, have_ca))
+            else:
+                commands.append(del_cmd + ' location')
+
+        else:
+            if is_dict_element_present(have_location_type, 'elin'):
+                if want_location_type.get('elin') != have_location_type.get('elin'):
+                    commands.append(del_cmd + ' location')
+            else:
+                commands.append(del_cmd + ' location')
+        return commands
+
+    @staticmethod
+    def delete_location(want_item):
+        commands = []
+        name = want_item['name']
+        del_cmd = 'delete service lldp interface ' + name + ' location'
+        want_location_type = want_item.get('location') or {}
+        if want_location_type:
+            commands.append(del_cmd)
+        return commands
+
+    @staticmethod
+    def add_civic_address(name, want, have):
+        commands = []
+        for item in want:
+            ca_type = item['ca_type']
+            ca_value = item['ca_value']
+            obj_in_have = search_dict_tv_in_list(ca_type, ca_value, have, 'ca_type', 'ca_value')
+            if not obj_in_have:
+                commands.append(Lldp_interfaces.set_cmd + name + ' location civic-based ca-type ' + str(
+                    ca_type) + ' ca-value ' + ca_value)
+        return commands
+
+    @staticmethod
+    def update_civic_address(name, want, have):
+        commands = []
+        for item in have:
+            ca_type = item['ca_type']
+            ca_value = item['ca_value']
+            in_want = search_dict_tv_in_list(ca_type, ca_value, want, 'ca_type', 'ca_value')
+            if not in_want:
+                commands.append(
+                    Lldp_interfaces.del_cmd + name + ' location civic-based ca-type ' + str(ca_type))
         return commands
